@@ -1,0 +1,527 @@
+@page "/"
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+
+<PageTitle>KombiMester</PageTitle>
+
+<main class="kombi-page @(_style == PegStyle.Animals ? "animals" : "colors")">
+    <header class="title">
+        <h1>KombiMester</h1>
+        <div class="title-buttons">
+            <button class="pill sound-btn" @onclick="ToggleSound"
+                    aria-label="@(_soundOn ? "Slå lyden fra" : "Slå lyden til")">
+                @(_soundOn ? "🔊" : "🔇")
+            </button>
+            <div class="pill stars" aria-label="@_stars stjerner">
+                ⭐ @_stars
+                @if (_stars >= StarsPerTrophy)
+                {
+                    <span class="trophies">🏆 @(_stars / StarsPerTrophy)</span>
+                }
+            </div>
+            <a class="kg-home" href="../" aria-label="Alle spil" title="Alle spil"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11.5 12 4l9 7.5M5.5 9.5V20h4.5v-6h4v6h4.5V9.5" /></svg><span class="kg-text">Alle spil</span></a>
+        </div>
+    </header>
+
+    <div class="play">
+        <section class="board" aria-label="Spillepladen">
+            <p class="rule">@(_repeats ? "Samme brik kan bruges flere gange" : "Koden har 4 forskellige brikker")</p>
+
+            @* The hidden code sits on top, under a lid, until the game is over. *@
+            <div class="row secret @(_game.IsOver ? "open" : "")" aria-label="@SecretLabel">
+                <span class="row-number" aria-hidden="true">@(_game.IsOver ? "🔓" : "🔒")</span>
+                <span class="slots">
+                    @for (var i = 0; i < CodeGame.Length; i++)
+                    {
+                        <span class="slot" style="--i:@i">
+                            @if (_game.IsOver)
+                            {
+                                @Peg(_game.Secret[i])
+                            }
+                            else
+                            {
+                                <span class="lid">?</span>
+                            }
+                        </span>
+                    }
+                </span>
+                @if (_hardScore)
+                {
+                    <span class="pins blank"></span>
+                }
+            </div>
+
+            <ol class="rows">
+                @for (var r = 0; r < CodeGame.MaxTries; r++)
+                {
+                    if (r < _game.Guesses.Count)
+                    {
+                        var guess = _game.Guesses[r];
+                        <li class="row done @(guess.IsRight ? "right" : "")" aria-label="@GuessLabel(r, guess)">
+                            <span class="row-number">@(r + 1)</span>
+                            <span class="slots">
+                                @for (var i = 0; i < CodeGame.Length; i++)
+                                {
+                                    var mark = guess.Marks[i];
+                                    <span class="slot">
+                                        @Peg(guess.Pegs[i])
+                                        @if (!_hardScore && mark != Mark.Miss)
+                                        {
+                                            <span class="badge @(mark == Mark.Exact ? "exact" : "present")" style="--i:@i">✓</span>
+                                        }
+                                    </span>
+                                }
+                            </span>
+                            @if (_hardScore)
+                            {
+                                @Pins(guess.Exact, guess.Present)
+                            }
+                        </li>
+                    }
+                    else if (r == _game.Guesses.Count && !_game.IsOver)
+                    {
+                        <li class="row current">
+                            <span class="row-number">@(r + 1)</span>
+                            <span class="slots">
+                                @for (var i = 0; i < CodeGame.Length; i++)
+                                {
+                                    var slot = i;
+                                    var peg = _current[slot];
+                                    <button class="slot @(slot == _cursor ? "cursor" : "") @(peg is null ? "" : "filled")"
+                                            @onclick="() => TapSlot(slot)"
+                                            aria-label="@(peg is { } p ? $"Plads {slot + 1}: {Looks[p].Name}. Tryk for at fjerne" : $"Plads {slot + 1}: tom")">
+                                        @if (peg is { } shown)
+                                        {
+                                            @Peg(shown)
+                                        }
+                                    </button>
+                                }
+                            </span>
+                            @if (_hardScore)
+                            {
+                                @Pins(0, 0)
+                            }
+                        </li>
+                    }
+                    else
+                    {
+                        <li class="row empty" aria-hidden="true">
+                            <span class="row-number">@(r + 1)</span>
+                            <span class="slots">
+                                @for (var i = 0; i < CodeGame.Length; i++)
+                                {
+                                    <span class="slot"></span>
+                                }
+                            </span>
+                            @if (_hardScore)
+                            {
+                                @Pins(0, 0)
+                            }
+                        </li>
+                    }
+                }
+            </ol>
+
+            @* What the marks mean, drawn the same way as on the board. *@
+            <div class="legend">
+                @if (_hardScore)
+                {
+                    <span><span class="pin black"></span> Rigtig plads</span>
+                    <span><span class="pin white"></span> Med, men forkert plads</span>
+                }
+                else
+                {
+                    <span><span class="badge exact">✓</span> Rigtig plads</span>
+                    <span><span class="badge present">✓</span> Med, men forkert plads</span>
+                }
+            </div>
+        </section>
+
+        <aside class="panel">
+            <div class="feedback" aria-live="polite">
+                <div class="message @_messageKind" @key="_messageKey">@_message</div>
+            </div>
+
+            <div class="palette" role="group" aria-label="Brikker">
+                @for (var p = 0; p < CodeGame.Kinds; p++)
+                {
+                    var peg = p;
+                    <button class="pick" disabled="@(!CanPlace(peg))" @onclick="() => Place(peg)" aria-label="@Looks[peg].Name">
+                        @Peg(peg)
+                    </button>
+                }
+            </div>
+
+            <div class="actions">
+                @if (_game.IsOver)
+                {
+                    <button class="big-btn next-btn" @onclick="NewGame">Ny kode ➜</button>
+                }
+                else
+                {
+                    <button class="big-btn undo-btn" disabled="@IsEmpty" @onclick="Undo" aria-label="Fjern den sidste brik">⌫</button>
+                    <button class="big-btn check-btn @(IsFull ? "ready" : "")" disabled="@(!IsFull)" @onclick="Check">Tjek ✓</button>
+                }
+            </div>
+
+            @* Settings for a grown-up (or a bigger child). Looks and marks change at once; a new code rule starts a new game. *@
+            <div class="settings">
+                <div class="setting">
+                    <span class="setting-label">Brikker</span>
+                    <div class="segmented" role="group" aria-label="Brikker">
+                        <button class="@(_style == PegStyle.Colors ? "active" : "")" aria-pressed="@(_style == PegStyle.Colors)"
+                                @onclick="() => SetStyle(PegStyle.Colors)">🎨 Farver</button>
+                        <button class="@(_style == PegStyle.Animals ? "active" : "")" aria-pressed="@(_style == PegStyle.Animals)"
+                                @onclick="() => SetStyle(PegStyle.Animals)">🐶 Dyr</button>
+                    </div>
+                </div>
+                <div class="setting">
+                    <span class="setting-label">Kode</span>
+                    <div class="segmented" role="group" aria-label="Kode">
+                        <button class="@(!_repeats ? "active" : "")" aria-pressed="@(!_repeats)" title="Hver brik er kun med én gang"
+                                @onclick="() => SetRepeats(false)">Let</button>
+                        <button class="@(_repeats ? "active" : "")" aria-pressed="@_repeats" title="Den samme brik kan være med op til 4 gange"
+                                @onclick="() => SetRepeats(true)">Svær</button>
+                    </div>
+                </div>
+                <div class="setting">
+                    <span class="setting-label">Svar</span>
+                    <div class="segmented" role="group" aria-label="Svar">
+                        <button class="@(!_hardScore ? "active" : "")" aria-pressed="@(!_hardScore)" title="Flueben på hver brik"
+                                @onclick="() => SetHardScore(false)">Let</button>
+                        <button class="@(_hardScore ? "active" : "")" aria-pressed="@_hardScore" title="Sorte og hvide pinde ved siden af"
+                                @onclick="() => SetHardScore(true)">Svær</button>
+                    </div>
+                </div>
+                <button class="chip restart" @onclick="NewGame" title="Start forfra med en ny kode">🔄 Ny kode</button>
+            </div>
+        </aside>
+    </div>
+
+    <footer class="credits">Lavet med kærlighed 💛 (c) 2026 Per Hejndorf, Kreaton – @BuildInfo.Display</footer>
+
+    @if (_party)
+    {
+        <div class="party">
+            @for (var i = 0; i < 40; i++)
+            {
+                <span class="confetti" style="@Confetti(i)"></span>
+            }
+            <div class="party-card">
+                <div class="party-trophy">🏆</div>
+                <div class="party-text">@_stars stjerner!</div>
+                <button class="big-btn next-btn" @onclick="ClosePartyAndContinue">Spil videre ➜</button>
+            </div>
+        </div>
+    }
+</main>
+
+@code {
+    private const int StarsPerTrophy = 5;
+    private const string SettingsKey = "kombimester.settings";
+
+    private readonly CodeGame _game = new();
+    private readonly int?[] _current = new int?[CodeGame.Length];
+    private int? _cursor = 0;        // the slot the next peg goes into; null when all four are filled
+    private DotNetObjectReference<Home>? _self;
+
+    private PegStyle _style = PegStyle.Colors;
+    private bool _repeats;           // hard code: the same peg up to four times
+    private bool _hardScore;         // hard marks: black and white pins instead of a tick on each peg
+
+    private string _message = StartMessage;
+    private string _messageKind = "info";
+    private int _messageKey;
+    private int _stars;
+    private bool _party;
+    private bool _soundOn = true;
+
+    private const string StartMessage = "Find den hemmelige kode! 🔍";
+
+    private IReadOnlyList<PegLook> Looks => CodeGame.Looks(_style);
+    private bool IsFull => _current.All(p => p is not null);
+    private bool IsEmpty => _current.All(p => p is null);
+
+    private string SecretLabel => _game.IsOver
+        ? "Koden var: " + string.Join(", ", _game.Secret.Select(p => Looks[p].Name))
+        : "Den hemmelige kode";
+
+    protected override void OnInitialized() => _game.NewGame(_repeats);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+
+        _self = DotNetObjectReference.Create(this);
+        try
+        {
+            await JS.InvokeVoidAsync("kombi.attachKeys", _self);
+            LoadSettings(await JS.InvokeAsync<string?>("kombi.load", SettingsKey));
+        }
+        catch (JSException)
+        {
+            // Without the helpers the buttons still work.
+        }
+        NewGame();
+        StateHasChanged();
+    }
+
+    // ---------- Playing ----------
+
+    private void NewGame()
+    {
+        _game.NewGame(_repeats);
+        ClearRow();
+        Say(StartMessage, "info");
+    }
+
+    private bool CanPlace(int peg) =>
+        !_game.IsOver && (_repeats || !_current.Contains(peg));
+
+    private async Task Place(int peg)
+    {
+        if (!CanPlace(peg)) return;
+        if (_cursor is not { } slot)
+        {
+            Say("Tryk på Tjek ✓ – eller på en brik for at tage den væk", "info");
+            return;
+        }
+
+        _current[slot] = peg;
+        _cursor = NextEmpty(slot);
+        await Play("place", peg);
+    }
+
+    /// <summary>A filled slot gives its peg back; an empty one becomes the place for the next peg.</summary>
+    private async Task TapSlot(int slot)
+    {
+        _cursor = slot;
+        if (_current[slot] is null) return;
+        _current[slot] = null;
+        await Play("remove");
+    }
+
+    /// <summary>Takes back the right-most peg.</summary>
+    private async Task Undo()
+    {
+        var slot = Array.FindLastIndex(_current, p => p is not null);
+        if (slot < 0) return;
+        _current[slot] = null;
+        _cursor = slot;
+        await Play("remove");
+    }
+
+    private async Task Check()
+    {
+        if (!IsFull || _game.IsOver) return;
+
+        var pegs = _current.Select(p => p!.Value).ToArray();
+        if (!_game.IsAllowed(pegs)) return;
+
+        var guess = _game.Check(pegs);
+        ClearRow();
+
+        if (guess.IsRight)
+        {
+            _stars++;
+            var tries = _game.Guesses.Count;
+            Say(tries == 1 ? "🎉 Wow! Du knækkede koden i første forsøg!" : $"🎉 Du knækkede koden på {tries} forsøg!", "success");
+            if (_stars % StarsPerTrophy == 0)
+            {
+                _party = true;
+                await Play("trophy");
+            }
+            else
+            {
+                await Play("success");
+            }
+            return;
+        }
+
+        if (_game.IsLost)
+        {
+            Say("Øv! Her er koden. Prøv en ny! 💪", "try-again");
+            await Play("tryAgain");
+            return;
+        }
+
+        var hint = (guess.Exact, guess.Present) switch
+        {
+            (0, 0) => "Ingen af dem er med. Prøv nogle andre! 🤔",
+            (0, var present) => $"{present} er med, men står forkert. Byt rundt! 🔀",
+            (var exact, 0) => $"{exact} står helt rigtigt! 👍",
+            var (exact, present) => $"{exact} står rigtigt, og {present} skal flyttes! 👍",
+        };
+        Say(_game.TriesLeft == 1 ? "Sidste forsøg! " + hint : hint, "info");
+        await Play("marks", guess.Exact, guess.Present);
+    }
+
+    private void ClearRow()
+    {
+        Array.Clear(_current);
+        _cursor = 0;
+    }
+
+    /// <summary>The next empty slot after <paramref name="slot"/>, going round to the start; null when all are filled.</summary>
+    private int? NextEmpty(int slot)
+    {
+        for (var step = 1; step <= CodeGame.Length; step++)
+        {
+            var next = (slot + step) % CodeGame.Length;
+            if (_current[next] is null) return next;
+        }
+        return null;
+    }
+
+    private void Say(string message, string kind)
+    {
+        _message = message;
+        _messageKind = kind;
+        _messageKey++;
+    }
+
+    private void ClosePartyAndContinue()
+    {
+        _party = false;
+        NewGame();
+    }
+
+    /// <summary>Called from kombi.js: 1–6 place a peg, Backspace takes one back, the arrows move between slots, Enter checks.</summary>
+    [JSInvokable]
+    public async Task OnKey(string key)
+    {
+        if (_party)
+        {
+            if (key == "Enter") ClosePartyAndContinue();
+        }
+        else if (key.Length == 1 && key[0] is >= '1' and <= '6')
+        {
+            await Place(key[0] - '1');
+        }
+        else if (key is "Backspace" or "Delete")
+        {
+            await Undo();
+        }
+        else if (key is "ArrowLeft" or "ArrowRight" && !_game.IsOver)
+        {
+            var step = key == "ArrowRight" ? 1 : CodeGame.Length - 1;
+            _cursor = ((_cursor ?? 0) + step) % CodeGame.Length;
+        }
+        else if (key == "Enter")
+        {
+            if (_game.IsOver) NewGame();
+            else await Check();
+        }
+        StateHasChanged();
+    }
+
+    // ---------- Settings ----------
+
+    private void SetStyle(PegStyle style)
+    {
+        if (_style == style) return;
+        _style = style;
+        _ = SaveSettings();
+    }
+
+    private void SetRepeats(bool repeats)
+    {
+        if (_repeats == repeats) return;
+        _repeats = repeats;
+        _ = SaveSettings();
+        NewGame();
+    }
+
+    private void SetHardScore(bool hard)
+    {
+        if (_hardScore == hard) return;
+        _hardScore = hard;
+        _ = SaveSettings();
+    }
+
+    private async Task SaveSettings()
+    {
+        var value = string.Join(",", (int)_style, _repeats ? 1 : 0, _hardScore ? 1 : 0);
+        try
+        {
+            await JS.InvokeVoidAsync("kombi.save", SettingsKey, value);
+        }
+        catch (JSException)
+        {
+        }
+    }
+
+    private void LoadSettings(string? value)
+    {
+        var parts = value?.Split(',');
+        if (parts is not { Length: 3 } || !parts.All(p => int.TryParse(p, out _))) return;
+
+        var n = parts.Select(int.Parse).ToArray();
+        if (Enum.IsDefined((PegStyle)n[0])) _style = (PegStyle)n[0];
+        _repeats = n[1] == 1;
+        _hardScore = n[2] == 1;
+    }
+
+    // ---------- Sound ----------
+
+    private void ToggleSound() => _soundOn = !_soundOn;
+
+    private async Task Play(string sound, params object[] args)
+    {
+        if (!_soundOn) return;
+        try
+        {
+            await JS.InvokeVoidAsync($"gameSounds.{sound}", args);
+        }
+        catch (JSException)
+        {
+            // No audio support: the game still works without sound.
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("kombi.detachKeys");
+        }
+        catch (Exception ex) when (ex is JSException or JSDisconnectedException)
+        {
+        }
+        _self?.Dispose();
+    }
+
+    // ---------- Drawing helpers ----------
+
+    private RenderFragment Peg(int peg) => __builder =>
+    {
+        var look = Looks[peg];
+        <span class="peg peg-@peg" title="@look.Name">@if (look.Emoji is { } emoji) { <span class="emoji">@emoji</span> }</span>
+    };
+
+    /// <summary>The classic marks: a black pin per peg in the right place, a white one per peg that is elsewhere. They don't say which peg.</summary>
+    private static RenderFragment Pins(int exact, int present) => __builder =>
+    {
+        <span class="pins" aria-hidden="true">
+            @for (var k = 0; k < CodeGame.Length; k++)
+            {
+                <span class="pin @(k < exact ? "black" : k < exact + present ? "white" : "hole")" style="--i:@k"></span>
+            }
+        </span>
+    };
+
+    private string GuessLabel(int row, Guess guess) =>
+        $"Gæt {row + 1}: {string.Join(", ", guess.Pegs.Select(p => Looks[p].Name))}. "
+        + $"{guess.Exact} på rigtig plads, {guess.Present} med et andet sted.";
+
+    private static string Confetti(int i)
+    {
+        string[] colours = ["#fa5252", "#339af0", "#51cf66", "#fcc419", "#9775fa", "#ff922b"];
+        // Spread out by a fixed pattern rather than Random, so the pieces don't jump on re-render.
+        var left = i * 37 % 100;
+        var delay = i * 53 % 100 / 100.0;
+        var duration = 1.8 + i * 29 % 10 / 10.0;
+        var inv = System.Globalization.CultureInfo.InvariantCulture;
+        return $"left:{left}%;background:{colours[i % colours.Length]};animation-delay:{delay.ToString(inv)}s;animation-duration:{duration.ToString(inv)}s";
+    }
+}
