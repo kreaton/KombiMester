@@ -30,7 +30,7 @@ public sealed class CodeGame
     private static readonly PegLook[] ColorPegs =
     [
         new("rød", null), new("blå", null), new("grøn", null),
-        new("gul", null), new("lilla", null), new("orange", null),
+        new("gul", null), new("lilla", null), new("sort", null),
     ];
 
     private static readonly PegLook[] AnimalPegs =
