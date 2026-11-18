@@ -4,6 +4,9 @@
 ![.NET 10](https://img.shields.io/badge/.NET-10-lightgrey)
 ![Installable web app](https://img.shields.io/badge/PWA-installable-lightgrey)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![GitHub stars](https://img.shields.io/github/stars/kreaton/KombiMester?style=flat&logo=github&color=yellow)](https://github.com/kreaton/KombiMester/stargazers)
+
+⭐ If KombiMester earns a place on your machine, [star it on GitHub](https://github.com/kreaton/KombiMester) — it's free, made by one developer, and stars are how other people find it.
 
 ![KombiMester: crack the secret code, one guess at a time](images/banner.png)
 
